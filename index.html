@@ -3,10 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generador de Slowed + Reverb</title>
+    <title>Generador de Slowed + Reverb + 8D</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- JSZip Library for ZIP handling -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip-utils/0.1.0/jszip-utils.min.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -23,7 +26,7 @@
             background-color: #2d3748; /* Slightly lighter dark background for container */
             border-radius: 1.5rem; /* More rounded corners */
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            max-width: 500px;
+            max-width: 600px; /* Slightly wider for canvas */
             width: 100%;
             padding: 2rem;
             border: 1px solid #4a5568; /* Subtle border */
@@ -61,44 +64,379 @@
             background: #4a5568;
             border-radius: 3px;
         }
+        canvas {
+            background-color: #1a202c; /* Dark background for canvas */
+            border-radius: 0.75rem;
+            border: 1px solid #4a5568;
+        }
+
+        /* Processing Overlay Styles */
+        .processing-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+        }
+        .processing-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .processing-card {
+            background-color: #2d3748;
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            text-align: center;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            max-width: 400px;
+            width: 90%;
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #63b3ed;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1.5rem;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .step-indicator {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            font-size: 1.1rem;
+            color: #a0aec0;
+        }
+        .step-indicator.active {
+            color: #e2e8f0;
+            font-weight: 600;
+        }
+        .step-number {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: #4a5568;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 0.75rem;
+            font-weight: bold;
+            color: #e2e8f0;
+        }
+        .step-indicator.active .step-number {
+            background-color: #63b3ed;
+        }
+
+        /* Music Player Styles */
+        .music-player {
+            background-color: #1a202c; /* Darker background for player */
+            border-radius: 1rem;
+            padding: 1.5rem; /* Increased padding to give more space */
+            margin-top: 1.5rem;
+            width: 100%;
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            align-items: center;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        .music-player.active {
+            display: flex;
+        }
+        .progress-bar-container {
+            width: 100%;
+            height: 8px;
+            background-color: #4a5568;
+            border-radius: 4px;
+            cursor: pointer;
+            position: relative;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #63b3ed;
+            border-radius: 4px;
+            width: 0%;
+        }
+        .player-controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between; /* Distribute items with space between */
+            width: 100%; /* Take full width of parent */
+            padding: 0 0.5rem; /* Small horizontal padding to ensure items don't touch edges */
+            box-sizing: border-box; /* Include padding in width calculation */
+            flex-wrap: wrap; /* Allow items to wrap on smaller screens */
+            gap: 1rem; /* Space between items */
+        }
+        .player-controls button {
+            background: none;
+            border: none;
+            color: #e2e8f0;
+            font-size: 1.8rem;
+            cursor: pointer;
+            transition: color 0.2s ease-in-out;
+            padding: 0.25rem 0.5rem; /* Add some padding to buttons */
+            border-radius: 0.5rem; /* Slightly rounded buttons */
+        }
+        .player-controls button:hover {
+            color: #63b3ed;
+            background-color: rgba(99, 179, 237, 0.1); /* Subtle hover background */
+        }
+        .volume-controls {
+            display: flex;
+            align-items: center;
+            flex-grow: 1; /* Allow volume controls to take available space */
+            justify-content: flex-end; /* Push to the right */
+            min-width: 120px; /* Ensure volume controls have minimum width */
+        }
+        .volume-slider {
+            width: 100%; /* Occupy full width within its container */
+            max-width: 100px; /* Max width for the slider */
+            height: 6px;
+            background-color: #4a5568;
+            border-radius: 3px;
+            appearance: none;
+            cursor: pointer;
+            margin-left: 0.5rem; /* Space from volume icon */
+        }
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #63b3ed;
+            cursor: pointer;
+            margin-top: -5px;
+        }
+        .volume-slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #63b3ed;
+            cursor: pointer;
+        }
+
+        /* Tab Navigation Styles */
+        .tab-buttons {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            width: 100%;
+        }
+        .tab-button {
+            padding: 0.75rem 1.5rem;
+            background-color: #4a5568;
+            color: #e2e8f0;
+            border: none;
+            border-radius: 0.75rem; /* Rounded corners for tabs */
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+            margin: 0 0.5rem; /* Spacing between buttons */
+        }
+        .tab-button.active {
+            background-color: #63b3ed;
+            color: #1a202c;
+        }
+        .tab-button:hover:not(.active) {
+            background-color: #5a6478;
+        }
+        /* Batch Processing Status */
+        .batch-status-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            display: none; /* Hidden by default */
+            justify-content: center;
+            align-items: center;
+            z-index: 1001;
+            flex-direction: column;
+            padding: 1rem;
+        }
+        .batch-status-card {
+            background-color: #2d3748;
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            text-align: center;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            max-width: 500px;
+            width: 90%;
+        }
+        .batch-progress-text {
+            font-size: 1.2rem;
+            color: #e2e8f0;
+            margin-top: 1rem;
+        }
+        .batch-file-name {
+            font-size: 1rem;
+            color: #a0aec0;
+            margin-top: 0.5rem;
+            word-break: break-all; /* Ensure long file names wrap */
+        }
     </style>
 </head>
 <body class="selection:bg-blue-500 selection:text-white">
-    <div class="container flex flex-col items-center space-y-6">
-        <h1 class="text-3xl font-bold text-blue-400 mb-4">Slowed + Reverb</h1>
+    <div class="container flex flex-col items-center space-y-6" id="mainAppContainer">
+        <h1 class="text-3xl font-bold text-blue-400 mb-4">Generador de Slowed + Reverb + 8D</h1>
 
-        <!-- File Upload Section -->
-        <div class="w-full">
-            <label for="audioFile" class="block text-lg font-medium text-gray-300 mb-2">Sube tu archivo de audio:</label>
-            <input type="file" id="audioFile" accept="audio/*" class="w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
-            <p id="fileName" class="text-sm text-gray-400 mt-2 text-center"></p>
+        <!-- Tab Navigation -->
+        <div class="tab-buttons">
+            <button id="inicioTabButton" class="tab-button active">Inicio</button>
+            <button id="advancedTabButton" class="tab-button">Avanzado</button>
         </div>
 
-        <!-- Controls Section -->
-        <div class="w-full space-y-6">
-            <!-- Speed Control -->
-            <div>
-                <label for="speedRange" class="block text-lg font-medium text-gray-300 mb-2">Velocidad:</label>
-                <input type="range" id="speedRange" min="0.5" max="1.5" value="1.0" step="0.01" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-                <p class="text-center text-gray-400 mt-2">Valor: <span id="speedValue">1.00x</span></p>
+        <!-- Inicio Section (formerly Configuration) -->
+        <div id="inicioSection" class="w-full flex flex-col items-center space-y-6">
+            <!-- File Upload Section (Single Audio) -->
+            <div class="w-full">
+                <label for="audioFile" class="block text-lg font-medium text-gray-300 mb-2">Sube tu archivo de audio:</label>
+                <input type="file" id="audioFile" accept="audio/*" class="w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+                <p id="fileName" class="text-sm text-gray-400 mt-2 text-center"></p>
             </div>
 
-            <!-- Reverb Control -->
-            <div>
-                <label for="reverbRange" class="block text-lg font-medium text-gray-300 mb-2">Reverberación:</label>
-                <input type="range" id="reverbRange" min="0" max="1" value="0.3" step="0.01" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-                <p class="text-center text-gray-400 mt-2">Valor: <span id="reverbValue">0.30</span></p>
+            <!-- Controls for Speed, Reverb, 8D (in Inicio) -->
+            <div class="w-full space-y-6 mt-6 pt-6 border-t border-gray-600">
+                <p class="text-xl font-semibold text-gray-300 mb-4 text-center">Ajustes de Efectos (Inicio)</p>
+                <!-- Speed Control - Inicio -->
+                <div>
+                    <label for="inicioSpeedRange" class="block text-lg font-medium text-gray-300 mb-2">Velocidad:</label>
+                    <input type="range" id="inicioSpeedRange" min="0.5" max="1.5" value="1.0" step="0.01" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                    <p class="text-center text-gray-400 mt-2">Valor: <span id="inicioSpeedValue">1.00x</span></p>
+                </div>
+
+                <!-- Reverb Control - Inicio -->
+                <div>
+                    <label for="inicioReverbRange" class="block text-lg font-medium text-gray-300 mb-2">Reverberación:</label>
+                    <input type="range" id="inicioReverbRange" min="0" max="1" value="0.3" step="0.01" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                    <p class="text-center text-gray-400 mt-2">Valor: <span id="inicioReverbValue">0.30</span></p>
+                </div>
+
+                <!-- 8D Audio Toggle - Inicio -->
+                <div class="flex items-center justify-center space-x-3">
+                    <input type="checkbox" id="inicio8dAudioToggle" class="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer">
+                    <label for="inicio8dAudioToggle" class="text-lg font-medium text-gray-300">Activar Audio 8D</label>
+                </div>
+            </div>
+
+            <!-- Action Button for Single Audio -->
+            <div class="w-full flex justify-center mt-6">
+                <button id="processButton" class="px-8 py-4 bg-blue-600 text-white font-semibold rounded-full shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition-all duration-200 ease-in-out transform hover:scale-105" disabled>
+                    Procesar Audio
+                </button>
             </div>
         </div>
 
-        <!-- Action Buttons -->
-        <div class="w-full flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4 mt-6">
-            <button id="processButton" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-full shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition-all duration-200 ease-in-out transform hover:scale-105" disabled>
-                Procesar y Previsualizar
-            </button>
-            <button id="downloadButton" class="px-6 py-3 bg-green-600 text-white font-semibold rounded-full shadow-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition-all duration-200 ease-in-out transform hover:scale-105" disabled>
-                Descargar Audio
-            </button>
+        <!-- Advanced Section -->
+        <div id="advancedSection" class="w-full flex flex-col items-center space-y-6" style="display: none;">
+            <p class="text-xl font-semibold text-gray-300 mb-4">Ajustes Avanzados y Procesamiento por Lotes (ZIP)</p>
+            <p class="text-gray-400 text-center mb-4">Configura los efectos y procesa múltiples archivos.</p>
+
+            <!-- Controls for Speed, Reverb, 8D (in Advanced) -->
+            <div class="w-full space-y-6">
+                <p class="text-xl font-semibold text-gray-300 mb-4 text-center">Ajustes de Efectos (Avanzado)</p>
+                <!-- Speed Control - Advanced -->
+                <div>
+                    <label for="advancedSpeedRange" class="block text-lg font-medium text-gray-300 mb-2">Velocidad:</label>
+                    <input type="range" id="advancedSpeedRange" min="0.5" max="1.5" value="1.0" step="0.01" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                    <p class="text-center text-gray-400 mt-2">Valor: <span id="advancedSpeedValue">1.00x</span></p>
+                </div>
+
+                <!-- Reverb Control - Advanced -->
+                <div>
+                    <label for="advancedReverbRange" class="block text-lg font-medium text-gray-300 mb-2">Reverberación:</label>
+                    <input type="range" id="advancedReverbRange" min="0" max="1" value="0.3" step="0.01" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                    <p class="text-center text-gray-400 mt-2">Valor: <span id="advancedReverbValue">0.30</span></p>
+                </div>
+
+                <!-- 8D Audio Toggle - Advanced -->
+                <div class="flex items-center justify-center space-x-3">
+                    <input type="checkbox" id="advanced8dAudioToggle" class="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer">
+                    <label for="advanced8dAudioToggle" class="text-lg font-medium text-gray-300">Activar Audio 8D</label>
+                </div>
+            </div>
+
+            <div class="w-full border-t border-gray-600 pt-6 mt-6">
+                <label for="zipFile" class="block text-lg font-medium text-gray-300 mb-2">Sube tu archivo .zip:</label>
+                <input type="file" id="zipFile" accept=".zip" class="w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+                <p id="zipFileName" class="text-sm text-gray-400 mt-2 text-center"></p>
+            </div>
+
+            <div class="w-full flex justify-center mt-6">
+                <button id="processZipButton" class="px-8 py-4 bg-purple-600 text-white font-semibold rounded-full shadow-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-75 transition-all duration-200 ease-in-out transform hover:scale-105" disabled>
+                    Procesar ZIP
+                </button>
+            </div>
+
+            <div id="batchResultSection" class="w-full flex flex-col items-center space-y-4 mt-8" style="display: none;">
+                <p class="text-lg font-semibold text-green-400">¡Procesamiento por lotes completado!</p>
+                <button id="downloadZipButton" class="px-6 py-3 bg-green-600 text-white font-semibold rounded-full shadow-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    Descargar ZIP Procesado
+                </button>
+                <p class="text-sm text-gray-400 text-center mt-2">Los archivos MP3 se han convertido a WAV dentro del ZIP.</p>
+            </div>
+        </div>
+
+        <!-- Music Player Section -->
+        <div class="music-player" id="musicPlayerSection">
+            <p class="text-xl font-semibold text-gray-300 mb-4">¡Disfruta tu canción terminada!</p>
+
+            <!-- Circular Spectrum Visualizer -->
+            <div class="w-full mb-6 flex justify-center items-center">
+                <canvas id="circularSpectrumVisualizer" class="w-full h-32 max-w-xs"></canvas>
+            </div>
+
+            <!-- Time and Progress Bar -->
+            <div class="w-full mb-4">
+                <div class="flex justify-between text-sm text-gray-400 mb-1">
+                    <span id="currentTime">00:00</span>
+                    <span id="totalDuration">00:00</span>
+                </div>
+                <div class="progress-bar-container" id="progressBarContainer">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+            </div>
+
+            <!-- Player Controls -->
+            <div class="player-controls mb-4">
+                <button id="rewindButton" title="Retroceder 10s" class="text-lg font-bold">-10s</button>
+                <button id="loopButton" title="Bucle">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-repeat"><path d="M17 1l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+                </button>
+                <button id="playPauseButton" title="Reproducir/Pausar">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                </button>
+                <button id="forwardButton" title="Avanzar 10s" class="text-lg font-bold">+10s</button>
+                <div class="volume-controls">
+                    <button id="volumeIcon" title="Volumen">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-volume-2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M22.39 2.61a15 15 0 0 1 0 18.78"/></svg>
+                    </button>
+                    <input type="range" id="volumeRange" min="0" max="1" value="1" step="0.01" class="volume-slider">
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="w-full flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4 mt-4">
+                <button id="downloadButton" class="px-6 py-3 bg-green-600 text-white font-semibold rounded-full shadow-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    Descargar
+                </button>
+                <button id="startOverButton" class="px-6 py-3 bg-gray-600 text-white font-semibold rounded-full shadow-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    Empezar de Nuevo
+                </button>
+            </div>
         </div>
 
         <!-- Status and Messages -->
@@ -107,26 +445,215 @@
         </div>
     </div>
 
+    <!-- Processing Overlay (for single file) -->
+    <div class="processing-overlay" id="processingOverlay">
+        <div class="processing-card">
+            <h2 class="text-2xl font-bold text-blue-400 mb-4">Generador de Slowed + Reverb</h2>
+            <p class="text-gray-300 mb-6">Esto puede tardar unos minutos</p>
+            <div class="spinner"></div>
+            <div class="space-y-3">
+                <div class="step-indicator" id="step1">
+                    <div class="step-number">1</div>
+                    <span>Cargando Audio</span>
+                </div>
+                <div class="step-indicator" id="step2">
+                    <div class="step-number">2</div>
+                    <span>Reduciendo Velocidad</span>
+                </div>
+                <div class="step-indicator" id="step3">
+                    <div class="step-number">3</div>
+                    <span>Añadiendo Reverberación</span>
+                </div>
+            </div>
+            <button id="cancelProcessingButton" class="mt-8 px-6 py-3 bg-pink-600 text-white font-semibold rounded-full shadow-lg hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-75 transition-all duration-200 ease-in-out transform hover:scale-105">
+                CANCELAR
+            </button>
+        </div>
+    </div>
+
+    <!-- Batch Processing Status Overlay -->
+    <div class="batch-status-overlay" id="batchStatusOverlay">
+        <div class="batch-status-card">
+            <h2 class="text-2xl font-bold text-blue-400 mb-4">Procesando Lotes</h2>
+            <div class="spinner"></div>
+            <p class="batch-progress-text" id="batchProgressText">Iniciando procesamiento...</p>
+            <p class="batch-file-name" id="batchCurrentFileName"></p>
+            <button id="cancelBatchButton" class="mt-8 px-6 py-3 bg-pink-600 text-white font-semibold rounded-full shadow-lg hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-opacity-75 transition-all duration-200 ease-in-out transform hover:scale-105">
+                CANCELAR
+            </button>
+        </div>
+    </div>
+
+
     <script>
         // Get DOM elements
+        const inicioTabButton = document.getElementById('inicioTabButton'); // Renamed
+        const advancedTabButton = document.getElementById('advancedTabButton');
+        const inicioSection = document.getElementById('inicioSection'); // Renamed
+        const advancedSection = document.getElementById('advancedSection');
+        const musicPlayerSection = document.getElementById('musicPlayerSection');
         const audioFile = document.getElementById('audioFile');
         const fileNameSpan = document.getElementById('fileName');
-        const speedRange = document.getElementById('speedRange');
-        const speedValueSpan = document.getElementById('speedValue');
-        const reverbRange = document.getElementById('reverbRange');
-        const reverbValueSpan = document.getElementById('reverbValue');
-        const processButton = document.getElementById('processButton');
+        
+        // Controls for Speed, Reverb, 8D (in Inicio)
+        const inicioSpeedRange = document.getElementById('inicioSpeedRange');
+        const inicioSpeedValueSpan = document.getElementById('inicioSpeedValue');
+        const inicioReverbRange = document.getElementById('inicioReverbRange');
+        const inicioReverbValueSpan = document.getElementById('inicioReverbValue');
+        const inicio8dAudioToggle = document.getElementById('inicio8dAudioToggle');
+        
+        // Controls for Speed, Reverb, 8D (in Advanced)
+        const advancedSpeedRange = document.getElementById('advancedSpeedRange');
+        const advancedSpeedValueSpan = document.getElementById('advancedSpeedValue');
+        const advancedReverbRange = document.getElementById('advancedReverbRange');
+        const advancedReverbValueSpan = document.getElementById('advancedReverbValue');
+        const advanced8dAudioToggle = document.getElementById('advanced8dAudioToggle');
+
+        const processButton = document.getElementById('processButton'); // For single file
         const downloadButton = document.getElementById('downloadButton');
+        const startOverButton = document.getElementById('startOverButton');
         const messageBox = document.getElementById('messageBox');
         const messageText = document.getElementById('messageText');
+        
+        // Visualizer Elements (circularSpectrumVisualizer)
+        const circularSpectrumVisualizer = document.getElementById('circularSpectrumVisualizer');
+        const canvasCtx = circularSpectrumVisualizer.getContext('2d');
+
+        // Processing Overlay Elements (for single file)
+        const processingOverlay = document.getElementById('processingOverlay');
+        const step1 = document.getElementById('step1');
+        const step2 = document.getElementById('step2');
+        const step3 = document.getElementById('step3');
+        const cancelProcessingButton = document.getElementById('cancelProcessingButton');
+
+        // Music Player Elements
+        const currentTimeSpan = document.getElementById('currentTime');
+        const totalDurationSpan = document.getElementById('totalDuration');
+        const progressBarContainer = document.getElementById('progressBarContainer');
+        const progressBar = document.getElementById('progressBar');
+        const loopButton = document.getElementById('loopButton');
+        const playPauseButton = document.getElementById('playPauseButton');
+        const rewindButton = document.getElementById('rewindButton'); // New
+        const forwardButton = document.getElementById('forwardButton'); // New
+        const volumeIcon = document.getElementById('volumeIcon');
+        const volumeRange = document.getElementById('volumeRange');
+        const playIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+        const pauseIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-pause"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+        const volumeHighIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-volume-2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M22.39 2.61a15 15 0 0 1 0 18.78"/></svg>';
+        const volumeLowIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-volume-1"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+        const volumeMuteIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-volume-x"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg>';
+
+        // Advanced Tab Elements (for ZIP processing)
+        const zipFile = document.getElementById('zipFile');
+        const zipFileNameSpan = document.getElementById('zipFileName');
+        const processZipButton = document.getElementById('processZipButton');
+        const batchResultSection = document.getElementById('batchResultSection');
+        const downloadZipButton = document.getElementById('downloadZipButton');
+        const batchStatusOverlay = document.getElementById('batchStatusOverlay');
+        const batchProgressText = document.getElementById('batchProgressText');
+        const batchCurrentFileName = document.getElementById('batchCurrentFileName');
+        const cancelBatchButton = document.getElementById('cancelBatchButton');
+
 
         let audioContext;
-        let originalBuffer = null;
-        let processedBuffer = null;
-        let audioSource = null; // To keep track of the currently playing source
+        let originalBuffer = null; // For single file processing
+        let processedBuffer = null; // For single file playback/download
+        let currentSource = null; // To keep track of the currently playing source node
+        let analyserNode = null;
+        let gainNode = null; // For volume control
+        let animationFrameId = null; // To control the visualizer animation loop
         let isPlaying = false;
+        let isLooping = false;
+        let startOffset = 0; // For seeking
+        let startTime = 0; // To track when playback started for accurate current time calculation
+        let processingAborted = false; // Flag to indicate if single file processing was cancelled
+        let batchProcessingAborted = false; // Flag to indicate if batch processing was cancelled
+        let finalProcessedZipBlob = null; // Stores the generated ZIP blob for download
 
-        // Function to show messages to the user
+
+        // --- UI State Management ---
+        function showSection(sectionId) {
+            inicioSection.style.display = 'none'; // Renamed
+            advancedSection.style.display = 'none';
+            musicPlayerSection.style.display = 'none';
+            processingOverlay.style.display = 'none';
+            processingOverlay.classList.remove('active');
+            musicPlayerSection.classList.remove('active');
+            batchStatusOverlay.style.display = 'none'; // Hide batch overlay by default
+
+            // Deactivate all tab buttons
+            inicioTabButton.classList.remove('active'); // Renamed
+            advancedTabButton.classList.remove('active');
+
+            if (sectionId === 'inicio') { // Renamed
+                inicioSection.style.display = 'flex';
+                inicioTabButton.classList.add('active');
+            } else if (sectionId === 'advanced') {
+                advancedSection.style.display = 'flex';
+                advancedTabButton.classList.add('active');
+            } else if (sectionId === 'processing') { // Single file processing overlay
+                processingOverlay.style.display = 'flex';
+                processingOverlay.classList.add('active');
+            } else if (sectionId === 'batch-processing') { // Batch processing overlay
+                batchStatusOverlay.style.display = 'flex';
+            } else if (sectionId === 'player') {
+                musicPlayerSection.style.display = 'flex';
+                musicPlayerSection.classList.add('active');
+            }
+        }
+
+        function resetUI() {
+            stopPlayback(); // Stop any playing audio
+            startOffset = 0; // ONLY reset startOffset here for a full reset
+            originalBuffer = null;
+            processedBuffer = null;
+            fileNameSpan.textContent = '';
+            zipFileNameSpan.textContent = ''; // Clear zip file name
+            
+            // Reset Inicio controls
+            inicioSpeedRange.value = 1.0;
+            inicioSpeedValueSpan.textContent = '1.00x';
+            inicioReverbRange.value = 0.3;
+            inicioReverbValueSpan.textContent = '0.30';
+            inicio8dAudioToggle.checked = false;
+
+            // Reset Advanced controls
+            advancedSpeedRange.value = 1.0;
+            advancedSpeedValueSpan.textContent = '1.00x';
+            advancedReverbRange.value = 0.3;
+            advancedReverbValueSpan.textContent = '0.30';
+            advanced8dAudioToggle.checked = false;
+
+            processButton.disabled = true;
+            processZipButton.disabled = true; // Disable zip button
+            downloadButton.disabled = true;
+            downloadZipButton.disabled = true; // Disable batch download button
+            batchResultSection.style.display = 'none'; // Hide batch result section
+            hideMessage();
+            showSection('inicio'); // Go back to inicio section
+            playPauseButton.innerHTML = playIcon;
+            progressBar.style.width = '0%';
+            currentTimeSpan.textContent = '00:00';
+            totalDurationSpan.textContent = '00:00';
+            loopButton.classList.remove('text-blue-400');
+            volumeRange.value = 1;
+            volumeIcon.innerHTML = volumeHighIcon;
+            if (gainNode) gainNode.gain.value = 1;
+            processingAborted = false; // Reset the flag
+            batchProcessingAborted = false; // Reset batch flag
+            finalProcessedZipBlob = null; // Clear the stored ZIP blob
+            clearCanvas(); // Clear visualizer
+
+            // Ensure correct button states on reset based on file selection
+            if (audioFile.files.length > 0) {
+                processButton.disabled = false;
+            }
+            if (zipFile.files.length > 0) {
+                processZipButton.disabled = false;
+            }
+        }
+
+        // --- Message Box Functions ---
         function showMessage(text, type = 'info') {
             messageText.textContent = text;
             messageBox.classList.remove('hidden', 'bg-red-800', 'bg-green-800', 'bg-yellow-800');
@@ -139,33 +666,36 @@
             }
         }
 
-        // Function to hide messages
         function hideMessage() {
             messageBox.classList.add('hidden');
         }
 
-        // Initialize AudioContext on user interaction for browser compatibility
+        // --- Audio Context & Nodes Initialization ---
         function initAudioContext() {
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyserNode = audioContext.createAnalyser();
+                analyserNode.fftSize = 256; // Smaller FFT size for more responsive circular visualizer
+                gainNode = audioContext.createGain(); // Master gain for volume control
+                gainNode.connect(analyserNode); // Connect gain to analyser
+                analyserNode.connect(audioContext.destination); // Connect analyser to speakers
             }
         }
 
-        // Event listener for file input change
+        // --- File Handling (Single Audio File) ---
         audioFile.addEventListener('change', async (event) => {
             const file = event.target.files[0];
             if (file) {
                 fileNameSpan.textContent = `Archivo cargado: ${file.name}`;
                 showMessage('Cargando audio...', 'info');
                 processButton.disabled = true;
-                downloadButton.disabled = true;
+                stopPlayback(); // Stop any ongoing playback
 
-                initAudioContext(); // Initialize context when file is selected
+                initAudioContext();
 
                 const reader = new FileReader();
                 reader.onload = async (e) => {
                     try {
-                        // Decode audio data
                         originalBuffer = await audioContext.decodeAudioData(e.target.result);
                         showMessage('Audio cargado con éxito. Ajusta los parámetros y procesa.', 'success');
                         processButton.disabled = false;
@@ -183,130 +713,177 @@
                 };
                 reader.readAsArrayBuffer(file);
             } else {
+                // If no file is selected, clear the file name and disable the process button
                 fileNameSpan.textContent = '';
                 originalBuffer = null;
                 processButton.disabled = true;
-                downloadButton.disabled = true;
                 hideMessage();
             }
         });
 
-        // Update speed value display
-        speedRange.addEventListener('input', () => {
-            speedValueSpan.textContent = parseFloat(speedRange.value).toFixed(2) + 'x';
+        // --- File Handling (ZIP File) ---
+        zipFile.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                zipFileNameSpan.textContent = `Archivo ZIP cargado: ${file.name}`;
+                processZipButton.disabled = false;
+                batchResultSection.style.display = 'none'; // Hide previous batch result
+                downloadZipButton.disabled = true;
+                showMessage('Archivo ZIP listo para procesar.', 'info');
+            } else {
+                zipFileNameSpan.textContent = '';
+                processZipButton.disabled = true;
+                batchResultSection.style.display = 'none';
+                downloadZipButton.disabled = true;
+                hideMessage();
+            }
         });
 
-        // Update reverb value display
-        reverbRange.addEventListener('input', () => {
-            reverbValueSpan.textContent = parseFloat(reverbRange.value).toFixed(2);
+        // --- Slider Value Display Listeners for Inicio Tab ---
+        inicioSpeedRange.addEventListener('input', () => {
+            inicioSpeedValueSpan.textContent = parseFloat(inicioSpeedRange.value).toFixed(2) + 'x';
         });
 
-        // Function to stop current playback
+        inicioReverbRange.addEventListener('input', () => {
+            inicioReverbValueSpan.textContent = parseFloat(inicioReverbRange.value).toFixed(2);
+        });
+
+        // --- Slider Value Display Listeners for Advanced Tab ---
+        advancedSpeedRange.addEventListener('input', () => {
+            advancedSpeedValueSpan.textContent = parseFloat(advancedSpeedRange.value).toFixed(2) + 'x';
+        });
+
+        advancedReverbRange.addEventListener('input', () => {
+            advancedReverbValueSpan.textContent = parseFloat(advancedReverbRange.value).toFixed(2);
+        });
+
+
+        // --- Playback Control ---
         function stopPlayback() {
-            if (audioSource) {
-                audioSource.stop();
-                audioSource.disconnect();
-                audioSource = null;
+            if (currentSource) {
+                currentSource.stop();
+                // It's crucial to remove the onended event listener before disconnecting/stopping
+                // to prevent it from firing when we manually stop.
+                currentSource.onended = null;
+                currentSource.disconnect();
+                currentSource = null;
             }
             isPlaying = false;
-            processButton.textContent = 'Procesar y Previsualizar';
+            playPauseButton.innerHTML = playIcon;
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+                clearCanvas();
+            }
+            // DO NOT reset startOffset here. It's managed by play/pause/seek logic.
+            // startTime is reset in playProcessedAudio when a new source starts, or in resetUI.
+            // Progress bar and current time will be updated by the next playProcessedAudio call or resetUI.
         }
 
-        // Function to process and play audio
+        function formatTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.floor(seconds % 60);
+            return `${minutes < 10 ? '0' : ''}${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+        }
+
+        // --- Circular Spectrum Visualizer ---
+        function clearCanvas() {
+            canvasCtx.clearRect(0, 0, circularSpectrumVisualizer.width, circularSpectrumVisualizer.height);
+        }
+
+        function drawVisualizer() {
+            animationFrameId = requestAnimationFrame(drawVisualizer);
+
+            const bufferLength = analyserNode.frequencyBinCount; // Number of frequency bins
+            const dataArray = new Uint8Array(bufferLength); // For frequency domain data
+            analyserNode.getByteFrequencyData(dataArray); // Get frequency data
+
+            const WIDTH = circularSpectrumVisualizer.width;
+            const HEIGHT = circularSpectrumVisualizer.height;
+            const centerX = WIDTH / 2;
+            const centerY = HEIGHT / 2;
+            const radius = Math.min(WIDTH, HEIGHT) / 4; // Base radius of the circle
+
+            canvasCtx.clearRect(0, 0, WIDTH, HEIGHT); // Clear the canvas
+
+            // Draw a central circle to make it look cleaner
+            canvasCtx.beginPath();
+            canvasCtx.arc(centerX, centerY, radius * 0.8, 0, 2 * Math.PI);
+            canvasCtx.fillStyle = '#1a202c'; // Inner circle color
+            canvasCtx.fill();
+            canvasCtx.lineWidth = 2;
+            canvasCtx.strokeStyle = '#4a5568'; // Border color
+            canvasCtx.stroke();
+
+
+            const barWidth = 360 / bufferLength; // Degrees per bar
+            for (let i = 0; i < bufferLength; i++) {
+                const barHeight = dataArray[i] * 0.7; // Scale frequency data to height
+
+                // Calculate angle for the bar
+                const angle = (i * barWidth) * Math.PI / 180; // Convert to radians
+
+                // Calculate start and end points of the bar
+                const x1 = centerX + radius * Math.cos(angle);
+                const y1 = centerY + radius * Math.sin(angle);
+                const x2 = centerX + (radius + barHeight) * Math.cos(angle);
+                const y2 = centerY + (radius + barHeight) * Math.sin(angle);
+
+                // Draw the bar
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(x1, y1);
+                canvasCtx.lineTo(x2, y2);
+                canvasCtx.strokeStyle = `hsl(${i / bufferLength * 360}, 100%, 50%)`; // Color based on frequency
+                canvasCtx.lineWidth = 2;
+                canvasCtx.stroke();
+            }
+        }
+
+
+        // --- Single File Processing Logic ---
         processButton.addEventListener('click', async () => {
             if (!originalBuffer) {
                 showMessage('Por favor, sube un archivo de audio primero.', 'error');
                 return;
             }
 
-            if (isPlaying) {
-                stopPlayback();
-                return; // Stop and allow re-processing
+            hideMessage();
+            showSection('processing'); // Show processing overlay
+            step1.classList.add('active');
+            step2.classList.remove('active');
+            step3.classList.remove('active');
+            processedBuffer = null; // Clear previous processed buffer
+            processingAborted = false; // Reset the flag
+
+            // Determine which set of controls to use based on the active tab
+            let speed, reverbAmount, enable8D;
+            if (inicioTabButton.classList.contains('active')) {
+                speed = parseFloat(inicioSpeedRange.value);
+                reverbAmount = parseFloat(inicioReverbRange.value);
+                enable8D = inicio8dAudioToggle.checked;
+            } else if (advancedTabButton.classList.contains('active')) {
+                speed = parseFloat(advancedSpeedRange.value);
+                reverbAmount = parseFloat(advancedReverbRange.value);
+                enable8D = advanced8dAudioToggle.checked;
+            } else {
+                // Fallback to default if no tab is active (shouldn't happen with showSection logic)
+                speed = 1.0;
+                reverbAmount = 0.3;
+                enable8D = false;
             }
 
-            showMessage('Procesando audio...', 'info');
-            processButton.disabled = true;
-            downloadButton.disabled = true;
+            // Stop any current playback
+            stopPlayback();
+            startOffset = 0; // Ensure single file processing always starts from beginning
 
-            const speed = parseFloat(speedRange.value);
-            const reverbAmount = parseFloat(reverbRange.value);
 
-            // Create a new AudioBuffer for processing to avoid modifying the original
-            const tempBuffer = audioContext.createBuffer(
-                originalBuffer.numberOfChannels,
-                originalBuffer.length,
-                originalBuffer.sampleRate
-            );
+            // --- Offline Rendering for Download and Playback ---
+            const reverbTailDuration = reverbAmount * 2; // Max 2 seconds for full reverb
+            const offlineContextDuration = originalBuffer.length / originalBuffer.sampleRate / speed + reverbTailDuration;
 
-            // Copy original data to temp buffer
-            for (let i = 0; i < originalBuffer.numberOfChannels; i++) {
-                tempBuffer.copyToChannel(originalBuffer.getChannelData(i), i);
-            }
-
-            // --- Apply Speed Effect ---
-            // The speed effect is applied by changing the playbackRate of the source node.
-            // We don't need to modify the buffer itself for speed.
-
-            // --- Apply Simulated Reverb Effect ---
-            // Create a custom reverb effect using multiple delays and gain nodes
-            // This simulates a decaying echo.
-            const sourceNode = audioContext.createBufferSource();
-            sourceNode.buffer = tempBuffer;
-            sourceNode.playbackRate.value = speed; // Apply speed here
-
-            const dryGain = audioContext.createGain();
-            dryGain.gain.value = 1 - reverbAmount; // Dry signal (original)
-
-            const wetGain = audioContext.createGain();
-            wetGain.gain.value = reverbAmount; // Wet signal (with reverb)
-
-            sourceNode.connect(dryGain); // Connect dry signal directly to dry gain
-
-            // Create a series of delays for the reverb effect
-            const numDelays = 5; // Number of echoes
-            const delayTime = 0.05; // Time between echoes in seconds
-            const decayRate = 0.6; // How much each echo decays
-
-            let currentDelayNode = sourceNode; // Start the chain from the source
-
-            for (let i = 0; i < numDelays; i++) {
-                const delay = audioContext.createDelay(delayTime * numDelays); // Max delay time
-                delay.delayTime.value = delayTime * (i + 1); // Increment delay time for each echo
-
-                const gain = audioContext.createGain();
-                gain.gain.value = Math.pow(decayRate, i + 1); // Exponential decay
-
-                currentDelayNode.connect(delay);
-                delay.connect(gain);
-                gain.connect(wetGain); // All echoes feed into the wet gain
-
-                currentDelayNode = gain; // Next delay starts from this gain node
-            }
-
-            dryGain.connect(audioContext.destination);
-            wetGain.connect(audioContext.destination);
-
-            // Start playback
-            audioSource = sourceNode; // Store the source node
-            audioSource.start(0);
-
-            isPlaying = true;
-            processButton.textContent = 'Detener Previsualización';
-            downloadButton.disabled = false;
-            showMessage('Audio procesado y reproduciéndose. Ajusta los parámetros o descarga.', 'success');
-
-            // When audio finishes playing
-            audioSource.onended = () => {
-                stopPlayback();
-                showMessage('Previsualización finalizada.', 'info');
-                processButton.disabled = false;
-            };
-
-            // To allow downloading the processed audio, we need to render it offline.
-            // This is a more robust way to get the final processed buffer.
             const offlineContext = new OfflineAudioContext(
                 originalBuffer.numberOfChannels,
-                originalBuffer.length / speed + (reverbAmount * 2 * originalBuffer.sampleRate), // Adjust length for speed and reverb tail
+                offlineContextDuration * originalBuffer.sampleRate, // Total frames
                 originalBuffer.sampleRate
             );
 
@@ -314,44 +891,471 @@
             offlineSource.buffer = originalBuffer;
             offlineSource.playbackRate.value = speed;
 
-            const offlineDryGain = offlineContext.createGain();
-            offlineDryGain.gain.value = 1 - reverbAmount;
+            let offlineLastNode = offlineSource;
 
-            const offlineWetGain = offlineContext.createGain();
-            offlineWetGain.gain.value = reverbAmount;
+            // Simulate step 2: Slowing It Down
+            setTimeout(() => {
+                if (processingAborted) return;
+                step2.classList.add('active');
+            }, 1000); // Small delay for visual effect
 
-            offlineSource.connect(offlineDryGain);
+            // Offline Reverb
+            if (reverbAmount > 0) {
+                const offlineDryGain = offlineContext.createGain();
+                offlineDryGain.gain.value = 1 - reverbAmount;
 
-            let offlineCurrentDelayNode = offlineSource;
-            for (let i = 0; i < numDelays; i++) {
-                const delay = offlineContext.createDelay(delayTime * numDelays);
-                delay.delayTime.value = delayTime * (i + 1);
-                const gain = offlineContext.createGain();
-                gain.gain.value = Math.pow(decayRate, i + 1);
-                offlineCurrentDelayNode.connect(delay);
-                delay.connect(gain);
-                gain.connect(offlineWetGain);
-                offlineCurrentDelayNode = gain;
+                const offlineWetGain = offlineContext.createGain();
+                offlineWetGain.gain.value = reverbAmount;
+
+                const numDelays = 5;
+                const delayTime = 0.05;
+                const decayRate = 0.6;
+
+                let offlineCurrentDelayNode = offlineSource;
+                for (let i = 0; i < numDelays; i++) {
+                    const delay = offlineContext.createDelay(delayTime * numDelays);
+                    delay.delayTime.value = delayTime * (i + 1);
+                    const gain = offlineContext.createGain();
+                    gain.gain.value = Math.pow(decayRate, i + 1);
+                    offlineCurrentDelayNode.connect(delay);
+                    delay.connect(gain);
+                    gain.connect(offlineWetGain);
+                    offlineCurrentDelayNode = gain;
+                }
+
+                offlineSource.connect(offlineDryGain);
+                const offlineMerger = offlineContext.createChannelMerger(2);
+                offlineDryGain.connect(offlineMerger, 0, 0);
+                offlineWetGain.connect(offlineMerger, 0, 1);
+                offlineLastNode = offlineMerger;
             }
 
-            offlineDryGain.connect(offlineContext.destination);
-            offlineWetGain.connect(offlineContext.destination);
+            // Simulate step 3: Adding Reverb
+            setTimeout(() => {
+                if (processingAborted) return;
+                step3.classList.add('active');
+            }, 2000); // Small delay for visual effect
 
+            // Offline 8D Audio - Even More Pronounced Circular Panner Scheduling with Y-axis movement
+            if (enable8D) {
+                const offlinePanner = offlineContext.createPanner();
+                offlinePanner.panningModel = 'HRTF'; // High quality spatialization
+                offlinePanner.distanceModel = 'linear';
+                offlinePanner.coneOuterGain = 0.1;
+                offlinePanner.coneOuterAngle = 180;
+                offlinePanner.coneInnerAngle = 0;
+                offlinePanner.refDistance = 1;
+                offlinePanner.maxDistance = 10000;
+                offlinePanner.rolloffFactor = 1;
+
+                offlineLastNode.connect(offlinePanner);
+                offlineLastNode = offlinePanner;
+
+                const pannerFrequency = 0.4; // Increased for even faster rotation
+                const pannerRadius = 6; // Increased for maximum separation between ears
+                const pannerHeightOscillation = 2.5; // Increased for more vertical movement
+
+                // Set initial position
+                offlinePanner.positionX.setValueAtTime(pannerRadius, 0);
+                offlinePanner.positionY.setValueAtTime(0, 0);
+                offlinePanner.positionZ.setValueAtTime(0, 0);
+
+                const pannerStepInterval = 0.005; // Very frequent updates for super smooth motion
+
+                // Schedule panner position changes in a circle (X and Z coordinates) with Y-axis oscillation
+                for (let i = 0; i <= offlineContextDuration; i += pannerStepInterval) {
+                    const angle = i * pannerFrequency * Math.PI * 2; // Angle in radians for full circle
+                    const x = Math.sin(angle) * pannerRadius;
+                    const z = Math.cos(angle) * pannerRadius; // Use Z for depth, creating a circle in XZ plane
+                    const y = Math.sin(angle * 1.1) * pannerHeightOscillation; // Slightly different oscillation for Y
+
+                    offlinePanner.positionX.linearRampToValueAtTime(x, i);
+                    offlinePanner.positionZ.linearRampToValueAtTime(z, i);
+                    offlinePanner.positionY.linearRampToValueAtTime(y, i);
+                }
+                // Ensure the last value is set at the very end of the duration
+                const finalAngle = offlineContextDuration * pannerFrequency * Math.PI * 2;
+                offlinePanner.positionX.linearRampToValueAtTime(Math.sin(finalAngle) * pannerRadius, offlineContextDuration);
+                offlinePanner.positionZ.linearRampToValueAtTime(Math.cos(finalAngle) * pannerRadius, offlineContextDuration);
+                offlinePanner.positionY.linearRampToValueAtTime(Math.sin(finalAngle * 1.1) * pannerHeightOscillation, offlineContextDuration);
+            }
+
+            offlineLastNode.connect(offlineContext.destination);
             offlineSource.start(0);
 
             try {
+                const renderStartTime = performance.now(); // Measure rendering time
                 processedBuffer = await offlineContext.startRendering();
+                const renderEndTime = performance.now();
+                console.log(`Offline rendering took: ${(renderEndTime - renderStartTime).toFixed(2)} ms`);
+
+                if (processingAborted) { // Check if cancelled during rendering
+                    console.log("Processing was aborted by user.");
+                    return; // Exit without showing player
+                }
+
+                showSection('player'); // Show player after processing
+                downloadButton.disabled = false;
+                totalDurationSpan.textContent = formatTime(processedBuffer.duration);
+                playProcessedAudio(); // Auto-play
+                showMessage('¡Audio procesado con éxito! Reproduciendo...', 'success');
             } catch (error) {
                 console.error('Error al renderizar el audio offline:', error);
-                showMessage('Error al preparar el audio para descargar.', 'error');
+                if (!processingAborted) { // Only show error if not manually cancelled
+                    showMessage('Error al preparar el audio para descargar o reproducir. Intenta con otro archivo.', 'error');
+                } else {
+                    showMessage('Procesamiento cancelado.', 'info');
+                }
                 processedBuffer = null;
                 downloadButton.disabled = true;
+                resetUI(); // Go back to initial state on error or cancel
             } finally {
-                processButton.disabled = false; // Re-enable button after processing
+                processingOverlay.classList.remove('active'); // Hide processing overlay
+                processingOverlay.style.display = 'none';
             }
         });
 
-        // Function to encode AudioBuffer to WAV and trigger download
+        // --- Play Processed Audio (for single file) ---
+        function playProcessedAudio() {
+            stopPlayback(); // Ensure no other audio is playing, but don't reset startOffset
+
+            if (!processedBuffer) {
+                showMessage('No hay audio procesado para reproducir.', 'error');
+                return;
+            }
+
+            currentSource = audioContext.createBufferSource();
+            currentSource.buffer = processedBuffer;
+            currentSource.connect(gainNode); // Connect to master gain for volume control
+
+            currentSource.loop = isLooping;
+
+            startTime = audioContext.currentTime; // This is the context time when *this* playback started
+            currentSource.start(0, startOffset); // Start from the current startOffset
+
+            isPlaying = true;
+            playPauseButton.innerHTML = pauseIcon;
+            drawVisualizer();
+
+            // Set the onended listener for natural end
+            currentSource.onended = () => {
+                // This will fire when the source finishes naturally OR when currentSource.stop() is called.
+                // We need to check if it was a *natural* end.
+                // If isPlaying is still true, it means it was a natural end (or loop completed).
+                if (isPlaying && !isLooping) { // Only show message if it was a natural end and not looping
+                    stopPlayback(); // Stop and reset UI elements, but startOffset is preserved
+                    startOffset = 0; // Reset startOffset for next playback after natural end
+                    progressBar.style.width = '0%'; // Reset progress bar
+                    currentTimeSpan.textContent = '00:00'; // Reset current time
+                    showMessage('Reproducción finalizada.', 'info');
+                }
+                // If isPlaying is false, it means stopPlayback was called manually (pause/seek), so no message.
+            };
+
+            // Update progress bar and current time
+            const updatePlaybackState = () => {
+                if (!isPlaying || !currentSource) { // If manually stopped/paused, stop animation
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                    return;
+                }
+
+                const elapsed = audioContext.currentTime - startTime + startOffset;
+                const progress = (elapsed / processedBuffer.duration) * 100;
+                progressBar.style.width = `${progress}%`;
+                currentTimeSpan.textContent = formatTime(elapsed);
+
+                // If we reached the end and not looping, ensure stopPlayback is called
+                if (elapsed >= processedBuffer.duration && !isLooping) {
+                    // This condition should ideally trigger stopPlayback and the onended event
+                    // The onended handler will then take care of the final state.
+                    // We don't need to call stopPlayback here directly, as onended will handle it.
+                } else {
+                    animationFrameId = requestAnimationFrame(updatePlaybackState);
+                }
+            };
+            animationFrameId = requestAnimationFrame(updatePlaybackState);
+        }
+
+        // --- Batch Processing Logic (ZIP File) ---
+        processZipButton.addEventListener('click', async () => {
+            const file = zipFile.files[0];
+            if (!file) {
+                showMessage('Por favor, sube un archivo .zip primero.', 'error');
+                return;
+            }
+
+            hideMessage();
+            showSection('batch-processing'); // Show batch processing overlay
+            batchProgressText.textContent = 'Cargando ZIP...';
+            batchCurrentFileName.textContent = '';
+            batchProcessingAborted = false;
+            finalProcessedZipBlob = null; // Clear previous ZIP blob
+
+            // Determine which set of controls to use based on the active tab
+            let speed, reverbAmount, enable8D;
+            if (inicioTabButton.classList.contains('active')) {
+                speed = parseFloat(inicioSpeedRange.value);
+                reverbAmount = parseFloat(inicioReverbRange.value);
+                enable8D = inicio8dAudioToggle.checked;
+            } else if (advancedTabButton.classList.contains('active')) {
+                speed = parseFloat(advancedSpeedRange.value);
+                reverbAmount = parseFloat(advancedReverbRange.value);
+                enable8D = advanced8dAudioToggle.checked;
+            } else {
+                // Fallback to default if no tab is active (shouldn't happen with showSection logic)
+                speed = 1.0;
+                reverbAmount = 0.3;
+                enable8D = false;
+            }
+
+            let zip;
+            try {
+                zip = await JSZip.loadAsync(file);
+            } catch (error) {
+                console.error('Error al cargar el archivo ZIP:', error);
+                showMessage('Error al cargar el archivo ZIP. Asegúrate de que es un archivo ZIP válido.', 'error');
+                showSection('advanced'); // Go back to advanced tab
+                return;
+            }
+
+            const mp3Files = [];
+            zip.forEach((relativePath, zipEntry) => {
+                // Only process .mp3 files and ignore directories
+                if (!zipEntry.dir && relativePath.toLowerCase().endsWith('.mp3')) {
+                    mp3Files.push(zipEntry);
+                }
+            });
+
+            if (mp3Files.length === 0) {
+                showMessage('El archivo ZIP no contiene archivos MP3.', 'info');
+                showSection('advanced');
+                return;
+            }
+
+            const outputZip = new JSZip();
+            let processedCount = 0;
+
+            for (const mp3Entry of mp3Files) {
+                if (batchProcessingAborted) {
+                    showMessage('Procesamiento por lotes cancelado.', 'info');
+                    break;
+                }
+
+                batchProgressText.textContent = `Procesando archivo ${processedCount + 1} de ${mp3Files.length}:`;
+                batchCurrentFileName.textContent = mp3Entry.name;
+
+                try {
+                    const arrayBuffer = await mp3Entry.async('arraybuffer');
+                    initAudioContext(); // Ensure context is initialized
+
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                    // --- Apply effects using OfflineAudioContext for each file ---
+                    const reverbTailDuration = reverbAmount * 2;
+                    const offlineContextDuration = audioBuffer.length / audioBuffer.sampleRate / speed + reverbTailDuration;
+
+                    const offlineContext = new OfflineAudioContext(
+                        audioBuffer.numberOfChannels,
+                        offlineContextDuration * audioBuffer.sampleRate,
+                        audioBuffer.sampleRate
+                    );
+
+                    const offlineSource = offlineContext.createBufferSource();
+                    offlineSource.buffer = audioBuffer;
+                    offlineSource.playbackRate.value = speed;
+
+                    let offlineLastNode = offlineSource;
+
+                    // Offline Reverb
+                    if (reverbAmount > 0) {
+                        const offlineDryGain = offlineContext.createGain();
+                        offlineDryGain.gain.value = 1 - reverbAmount;
+                        const offlineWetGain = offlineContext.createGain();
+                        offlineWetGain.gain.value = reverbAmount;
+                        const numDelays = 5;
+                        const delayTime = 0.05;
+                        const decayRate = 0.6;
+                        let offlineCurrentDelayNode = offlineSource;
+                        for (let i = 0; i < numDelays; i++) {
+                            const delay = offlineContext.createDelay(delayTime * numDelays);
+                            delay.delayTime.value = delayTime * (i + 1);
+                            const gain = offlineContext.createGain();
+                            gain.gain.value = Math.pow(decayRate, i + 1);
+                            offlineCurrentDelayNode.connect(delay);
+                            delay.connect(gain);
+                            gain.connect(offlineWetGain);
+                            offlineCurrentDelayNode = gain;
+                        }
+                        offlineSource.connect(offlineDryGain);
+                        const offlineMerger = offlineContext.createChannelMerger(2);
+                        offlineDryGain.connect(offlineMerger, 0, 0);
+                        offlineWetGain.connect(offlineMerger, 0, 1);
+                        offlineLastNode = offlineMerger;
+                    }
+
+                    // Offline 8D Audio - More Pronounced Circular Panner Scheduling with Y-axis movement
+                    if (enable8D) {
+                        const offlinePanner = offlineContext.createPanner();
+                        offlinePanner.panningModel = 'HRTF'; // High quality spatialization
+                        offlinePanner.distanceModel = 'linear';
+                        offlinePanner.coneOuterGain = 0.1;
+                        offlinePanner.coneOuterAngle = 180;
+                        offlinePanner.coneInnerAngle = 0;
+                        offlinePanner.refDistance = 1;
+                        offlinePanner.maxDistance = 10000;
+                        offlinePanner.rolloffFactor = 1;
+
+                        offlineLastNode.connect(offlinePanner);
+                        offlineLastNode = offlinePanner;
+
+                        const pannerFrequency = 0.3; // Increased for faster rotation
+                        const pannerRadius = 5; // Increased for wider separation
+                        const pannerHeightOscillation = 2; // Increased for more noticeable vertical displacement
+
+                        // Set initial position
+                        offlinePanner.positionX.setValueAtTime(pannerRadius, 0);
+                        offlinePanner.positionY.setValueAtTime(0, 0);
+                        offlinePanner.positionZ.setValueAtTime(0, 0);
+
+                        const pannerStepInterval = 0.01; // Even more frequent updates for super smooth motion
+
+                        // Schedule panner position changes in a circle (X and Z coordinates) with Y-axis oscillation
+                        for (let i = 0; i <= offlineContextDuration; i += pannerStepInterval) {
+                            const angle = i * pannerFrequency * Math.PI * 2; // Angle in radians for full circle
+                            const x = Math.sin(angle) * pannerRadius;
+                            const z = Math.cos(angle) * pannerRadius; // Use Z for depth, creating a circle in XZ plane
+                            const y = Math.sin(angle * 0.9) * pannerHeightOscillation; // Slightly different oscillation for Y
+
+                            offlinePanner.positionX.linearRampToValueAtTime(x, i);
+                            offlinePanner.positionZ.linearRampToValueAtTime(z, i);
+                            offlinePanner.positionY.linearRampToValueAtTime(y, i);
+                        }
+                        // Ensure the last value is set at the very end of the duration
+                        const finalAngle = offlineContextDuration * pannerFrequency * Math.PI * 2;
+                        offlinePanner.positionX.linearRampToValueAtTime(Math.sin(finalAngle) * pannerRadius, offlineContextDuration);
+                        offlinePanner.positionZ.linearRampToValueAtTime(Math.cos(finalAngle) * pannerRadius, offlineContextDuration);
+                        offlinePanner.positionY.linearRampToValueAtTime(Math.sin(finalAngle * 0.9) * pannerHeightOscillation, offlineContextDuration);
+                    }
+
+                    offlineLastNode.connect(offlineContext.destination);
+                    offlineSource.start(0);
+
+                    const processedAudioBuffer = await offlineContext.startRendering();
+                    const wavData = encodeWAV(processedAudioBuffer); // Encode to WAV
+                    const newFileName = mp3Entry.name.replace(/\.mp3$/i, '_processed.wav'); // Change extension
+                    outputZip.file(newFileName, wavData);
+                    processedCount++;
+
+                } catch (innerError) {
+                    console.error(`Error processing ${mp3Entry.name}:`, innerError);
+                    // Continue to next file even if one fails
+                }
+            }
+
+            batchStatusOverlay.style.display = 'none'; // Hide batch status overlay
+
+            if (batchProcessingAborted) {
+                showMessage('Procesamiento por lotes cancelado.', 'info');
+                showSection('advanced');
+                return;
+            }
+
+            if (processedCount > 0) {
+                showMessage('Generando archivo ZIP para descarga...', 'info');
+                try {
+                    // Generate the final ZIP blob
+                    finalProcessedZipBlob = await outputZip.generateAsync({ type: 'blob' });
+                    downloadZipButton.disabled = false;
+                    batchResultSection.style.display = 'flex'; // Show download button
+                    showMessage(`¡Procesamiento por lotes completado! ${processedCount} archivos procesados.`, 'success');
+                } catch (error) {
+                    console.error('Error al generar el ZIP final:', error);
+                    showMessage('Error al generar el archivo ZIP para descarga.', 'error');
+                    showSection('advanced');
+                }
+            } else {
+                showMessage('No se pudieron procesar archivos MP3 válidos.', 'error');
+                showSection('advanced');
+            }
+        });
+
+        // --- Music Player Controls (for single file) ---
+        playPauseButton.addEventListener('click', () => {
+            if (!processedBuffer) {
+                showMessage('Por favor, procesa un audio primero para reproducir.', 'error');
+                return;
+            }
+
+            if (isPlaying) {
+                // Pause
+                startOffset = audioContext.currentTime - startTime + startOffset; // Save current position
+                stopPlayback(); // This will set isPlaying to false, clear animation, but preserve startOffset
+            } else {
+                // Play
+                playProcessedAudio(); // This will start from startOffset
+            }
+        });
+
+        loopButton.addEventListener('click', () => {
+            isLooping = !isLooping;
+            loopButton.classList.toggle('text-blue-400', isLooping); // Highlight if active
+            if (currentSource) {
+                currentSource.loop = isLooping;
+            }
+            showMessage(isLooping ? 'Bucle activado.' : 'Bucle desactivado.', 'info');
+        });
+
+        rewindButton.addEventListener('click', () => {
+            if (!processedBuffer) {
+                showMessage('No hay audio para retroceder.', 'error');
+                return;
+            }
+            const currentPlaybackTime = audioContext.currentTime - startTime + startOffset;
+            const newSeekTime = Math.max(0, currentPlaybackTime - 10); // Don't go below 0
+            startOffset = newSeekTime; // Update startOffset
+            playProcessedAudio(); // This will stop current and start new from new startOffset
+            showMessage(`Retrocediendo a ${formatTime(newSeekTime)}`, 'info');
+        });
+
+        forwardButton.addEventListener('click', () => {
+            if (!processedBuffer) {
+                showMessage('No hay audio para avanzar.', 'error');
+                return;
+            }
+            const currentPlaybackTime = audioContext.currentTime - startTime + startOffset;
+            const newSeekTime = Math.min(processedBuffer.duration, currentPlaybackTime + 10); // Don't exceed duration
+            startOffset = newSeekTime; // Update startOffset
+            playProcessedAudio(); // This will stop current and start new from new startOffset
+            showMessage(`Avanzando a ${formatTime(newSeekTime)}`, 'info');
+        });
+
+
+        volumeRange.addEventListener('input', () => {
+            if (gainNode) {
+                gainNode.gain.value = parseFloat(volumeRange.value);
+                if (volumeRange.value == 0) {
+                    volumeIcon.innerHTML = volumeMuteIcon;
+                } else if (volumeRange.value < 0.5) {
+                    volumeIcon.innerHTML = volumeLowIcon;
+                } else {
+                    volumeIcon.innerHTML = volumeHighIcon;
+                }
+            }
+        });
+
+        progressBarContainer.addEventListener('click', (e) => {
+            if (!processedBuffer) return;
+
+            const clickX = e.clientX - progressBarContainer.getBoundingClientRect().left;
+            const percentage = clickX / progressBarContainer.offsetWidth;
+            const seekTime = percentage * processedBuffer.duration;
+
+            startOffset = seekTime; // Update startOffset
+            playProcessedAudio(); // This will stop current and start new from new startOffset
+        });
+
+        // --- Download and Start Over Buttons ---
         downloadButton.addEventListener('click', () => {
             if (!processedBuffer) {
                 showMessage('No hay audio procesado para descargar. Por favor, procesa el audio primero.', 'error');
@@ -368,14 +1372,54 @@
 
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'audio_procesado.wav';
+            a.download = 'audio_procesado.wav'; // Suggests a filename
             document.body.appendChild(a);
-            a.click();
+            a.click(); // Programmatically click the link
             document.body.removeChild(a);
-            URL.revokeObjectURL(url); // Clean up the URL object
+            URL.revokeObjectURL(url); // Clean up
 
-            showMessage('¡Audio descargado con éxito!', 'success');
+            // Inform the user about potential WebView limitations
+            showMessage('La descarga debería comenzar. Si no, es posible que tu aplicación no permita descargas directas. Intenta abrir la aplicación en un navegador web (como Chrome o Chrome) en tu teléfono y descargar desde allí.', 'info');
         });
+
+        // Download ZIP Button (for batch processing) - MODIFIED FOR APPCREATOR24 COMPATIBILITY
+        downloadZipButton.addEventListener('click', () => {
+            if (!finalProcessedZipBlob) {
+                showMessage('No hay un archivo ZIP procesado para descargar.', 'error');
+                return;
+            }
+
+            showMessage('Iniciando descarga del ZIP...', 'info');
+            const zipUrl = URL.createObjectURL(finalProcessedZipBlob);
+            
+            const a = document.createElement('a');
+            a.href = zipUrl;
+            a.download = 'audios_procesados.zip'; // Suggests a filename
+            document.body.appendChild(a);
+            a.click(); // Programmatically click the link
+            document.body.removeChild(a);
+            URL.revokeObjectURL(zipUrl); // Clean up
+
+            // Inform the user about potential WebView limitations
+            showMessage('La descarga del ZIP debería comenzar. Si no, es posible que tu aplicación no permita descargas directas. Intenta abrir la aplicación en un navegador web (como Chrome o Chrome) en tu teléfono y descargar desde allí.', 'info');
+        });
+
+
+        startOverButton.addEventListener('click', () => {
+            resetUI();
+            showMessage('Aplicación reiniciada. Sube un nuevo archivo.', 'info');
+        });
+
+        cancelProcessingButton.addEventListener('click', () => {
+            processingAborted = true; // Set flag to abort processing
+            showMessage('Cancelando procesamiento...', 'info');
+        });
+
+        cancelBatchButton.addEventListener('click', () => {
+            batchProcessingAborted = true; // Set flag to abort batch processing
+            showMessage('Cancelando procesamiento por lotes...', 'info');
+        });
+
 
         // Helper function to encode AudioBuffer to WAV format
         function encodeWAV(audioBuffer) {
@@ -430,10 +1474,7 @@
             }
         }
 
-        // Initial state for buttons
-        processButton.disabled = true;
-        downloadButton.disabled = true;
-
+        // --- Initial Setup ---
         // Ensure AudioContext is resumed on first user gesture
         document.body.addEventListener('click', () => {
             if (audioContext && audioContext.state === 'suspended') {
@@ -441,6 +1482,21 @@
             }
         }, { once: true });
 
+        // Adjust canvas size to be responsive
+        function resizeCanvas() {
+            // Set canvas dimensions to be square and fill available width up to max-w-xs
+            const size = Math.min(circularSpectrumVisualizer.parentElement.offsetWidth, 200); // max-w-xs is 20rem = 320px, but h-32 is 128px, so limit by height
+            circularSpectrumVisualizer.width = size;
+            circularSpectrumVisualizer.height = size;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas(); // Initial call
+
+        // Tab button event listeners
+        inicioTabButton.addEventListener('click', () => showSection('inicio'));
+        advancedTabButton.addEventListener('click', () => showSection('advanced'));
+
+        resetUI(); // Set initial UI state
     </script>
 </body>
 </html>
